@@ -1,20 +1,30 @@
 import streamlit as st
-import pandas as pd
-import nltk
+import os
 import re
-from nltk.sentiment.vader import SentimentIntensityAnalyzer
 
-# --- 1. INITIAL SETUP ---
-st.set_page_config(page_title="Sentiment Dashboard", page_icon="📊", layout="wide")
+# --- DEFENSIVE IMPORT CHECK ---
+try:
+    import nltk
+    import pandas as pd
+    from nltk.sentiment.vader import SentimentIntensityAnalyzer
+    NLTK_AVAILABLE = True
+except ImportError:
+    NLTK_AVAILABLE = False
 
+# --- 1. PAGE CONFIG ---
+st.set_page_config(page_title="Sentiment AI Pro", page_icon="📊", layout="wide")
+
+# --- 2. NLTK DATA LOADING ---
 @st.cache_resource
-def setup_analyzer():
-    nltk.download('vader_lexicon')
-    return SentimentIntensityAnalyzer()
+def load_resources():
+    if NLTK_AVAILABLE:
+        nltk.download('vader_lexicon')
+        return SentimentIntensityAnalyzer()
+    return None
 
-analyzer = setup_analyzer()
+analyzer = load_resources()
 
-# --- 2. HELPER FUNCTIONS ---
+# --- 3. HELPER FUNCTIONS ---
 def clean_text(text):
     text = str(text).lower()
     text = re.sub(r'[^a-z\s]', '', text)
@@ -22,60 +32,51 @@ def clean_text(text):
     return text
 
 def get_sentiment(text):
-    score = analyzer.polarity_scores(text)['compound']
-    if score >= 0.05: return "Positive", "😊"
-    elif score <= -0.05: return "Negative", "😟"
-    else: return "Neutral", "😐"
+    if analyzer:
+        score = analyzer.polarity_scores(text)['compound']
+        if score >= 0.05: return "Positive", "😊", "#d4edda"
+        elif score <= -0.05: return "Negative", "😟", "#f8d7da"
+        else: return "Neutral", "😐", "#e2e3e5"
+    return "Error", "❓", "#ffffff"
 
-# --- 3. LOAD YOUR CSV ---
-@st.cache_data
-def load_csv_data():
-    if os.path.exists("reviews.csv"):
-        df = pd.read_csv("reviews.csv")
-        # Ensure the column exists
-        if "Review" in df.columns:
-            df["Cleaned_Review"] = df["Review"].apply(clean_text)
-            df["Sentiment_Label"] = df["Cleaned_Review"].apply(lambda x: get_sentiment(x)[0])
-            return df
-    return None
+# --- 4. MAIN UI ---
+st.title("🧠 AI Sentiment Analyzer")
 
-import os
-data = load_csv_data()
+# If NLTK failed to import, show a clear instruction box
+if not NLTK_AVAILABLE:
+    st.error("### ⚠️ Library Missing: NLTK")
+    st.write("The server has not installed the required tools yet. Please follow these steps:")
+    st.info("""
+    1. Go to your **requirements.txt** on GitHub.
+    2. Ensure it contains exactly these 3 lines:
+       ```
+       streamlit
+       pandas
+       nltk
+       ```
+    3. If they are already there, go to **Manage App** (bottom right) -> **Three Dots** -> **Reboot App**.
+    """)
+    st.stop() # Stops the app from crashing further
 
-# --- 4. DASHBOARD UI ---
-st.title("🧠 Customer Review Sentiment Analysis")
+# --- 5. SEARCH & DATA LOGIC (Runs only if NLTK is found) ---
+user_input = st.text_input("Test a sentence:", placeholder="Enter text...")
 
-if data is not None:
-    # Top Row Metrics
-    col1, col2, col3 = st.columns(3)
-    counts = data["Sentiment_Label"].value_counts()
-    
-    col1.metric("Total Reviews", len(data))
-    col2.metric("Positive Reviews", counts.get("Positive", 0))
-    col3.metric("Negative Reviews", counts.get("Negative", 0))
-    
-    st.divider()
-    
-    # Interactive Input Section
-    st.subheader("🔥 Test New Input")
-    user_input = st.text_input("Enter a new sentence to predict sentiment:", placeholder="Type here...")
-    
-    if user_input:
-        cleaned = clean_text(user_input)
-        label, emoji = get_sentiment(cleaned)
-        
-        if label == "Positive": st.success(f"Result: {label} {emoji}")
-        elif label == "Negative": st.error(f"Result: {label} {emoji}")
-        else: st.info(f"Result: {label} {emoji}")
+if user_input:
+    label, emoji, color = get_sentiment(clean_text(user_input))
+    st.markdown(f"<div style='background-color:{color}; padding:20px; border-radius:10px; text-align:center;'><h2>{emoji} {label}</h2></div>", unsafe_allow_html=True)
 
-    st.divider()
+st.divider()
 
-    # Data Display
-    st.subheader("📋 Dataset Overview (reviews.csv)")
-    st.dataframe(data[["Review", "Sentiment_Label"]], use_container_width=True)
-    
-    # Simple Chart
-    st.bar_chart(counts)
-
+# Load CSV
+if os.path.exists("reviews.csv"):
+    df = pd.read_csv("reviews.csv")
+    st.subheader("📋 Dataset Analysis")
+    if "Review" in df.columns:
+        df["Sentiment"] = df["Review"].apply(lambda x: get_sentiment(clean_text(x))[0])
+        col1, col2 = st.columns([1, 2])
+        with col1:
+            st.bar_chart(df["Sentiment"].value_counts())
+        with col2:
+            st.dataframe(df[["Review", "Sentiment"]], use_container_width=True)
 else:
-    st.error("Error: 'reviews.csv' not found. Please upload it to your GitHub repository.")
+    st.warning("Upload 'reviews.csv' to GitHub to see batch results.")
