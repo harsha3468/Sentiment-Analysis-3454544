@@ -1,4 +1,5 @@
 streamlit
 pandas
-nltk
-scikit-learn
+beautifulsoup4
+requests
+textblob
